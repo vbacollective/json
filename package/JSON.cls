@@ -64,8 +64,8 @@ Private Const JSON_WRITER_MIN_CAPACITY As Long = 4096
 '/** @description Initial writer capacity used when serializing external VBA values. */
 Private Const JSON_VALUE_WRITER_CAPACITY As Long = 65536
 
-'/** @description Minimum child count that justifies a lazy direct-child index. */
-Private Const JSON_CHILD_INDEX_MIN_CHILDREN As Long = 32
+'/** @description Minimum object width that justifies a lazy key index. */
+Private Const JSON_KEY_INDEX_MIN_CHILDREN As Long = 32
 
 '/**
 ' * @struct SAFEARRAY1D
@@ -114,6 +114,8 @@ Private Type JSToken
     KeyLen As Long
     ValStart As Long
     ValLen As Long
+    KeyIndexBuilt As Boolean
+    KeyLookupCount As Integer
     ChildIndexStart As Long
     IndexLookupCount As Integer
 End Type
@@ -125,6 +127,7 @@ Private m_Index As Long
 Private m_Tokens() As JSToken
 Private m_TokenCount As Long
 Private m_TokenCap As Long
+Private m_KeyIndex As Object
 Private m_ChildIndexTokens() As Long
 Private m_ChildIndexCount As Long
 Private m_ChildIndexCap As Long
@@ -140,6 +143,7 @@ Private m_DecodedValueCache As Object
 ' */
 Private Sub Class_Terminate()
     ClearCharAlias
+    Set m_KeyIndex = Nothing
     Set m_DecodedValueCache = Nothing
 End Sub
 
@@ -216,6 +220,7 @@ Friend Sub LoadText(ByRef Text As String)
     m_RootId = 0
     m_NodeId = 0
     Set m_Document = Nothing
+    Set m_KeyIndex = Nothing
     Set m_DecodedValueCache = Nothing
     
     Erase m_Chars
@@ -1691,6 +1696,35 @@ End Sub
 ' */
 Friend Function FindChildFast(ByVal ParentId As Long, ByRef KeyName As String) As Long
     Dim child As Long
+    Dim indexKey As String
+    
+    If ParentId < 1 Or ParentId > m_TokenCount Then Exit Function
+    If m_Tokens(ParentId).Type <> jsObject Then Exit Function
+    
+    If m_Tokens(ParentId).KeyIndexBuilt Then
+        indexKey = ObjectKeyIndexKey(ParentId, KeyName)
+        
+        If m_KeyIndex.Exists(indexKey) Then
+            FindChildFast = m_KeyIndex.Item(indexKey)
+        End If
+        Exit Function
+    End If
+    
+    If m_Tokens(ParentId).ChildCount >= JSON_KEY_INDEX_MIN_CHILDREN Then
+        If m_Tokens(ParentId).KeyLookupCount < 2 Then
+            m_Tokens(ParentId).KeyLookupCount = m_Tokens(ParentId).KeyLookupCount + 1
+        End If
+        
+        If m_Tokens(ParentId).KeyLookupCount >= 2 Then
+            BuildObjectKeyIndex ParentId
+            indexKey = ObjectKeyIndexKey(ParentId, KeyName)
+            
+            If m_KeyIndex.Exists(indexKey) Then
+                FindChildFast = m_KeyIndex.Item(indexKey)
+            End If
+            Exit Function
+        End If
+    End If
     
     child = m_Tokens(ParentId).FirstChild
     
@@ -1746,13 +1780,55 @@ Private Function KeyContainsEscape(ByVal TokenId As Long) As Boolean
     Dim lastChar As Long
 
     lastChar = m_Tokens(TokenId).KeyStart + m_Tokens(TokenId).KeyLen - 2
-
+    
     For i = m_Tokens(TokenId).KeyStart - 1 To lastChar
         If m_Chars(i) = 92 Then
             KeyContainsEscape = True
             Exit Function
         End If
     Next i
+End Function
+
+'/**
+' * @method BuildObjectKeyIndex
+' * @brief Builds normalized key lookup entries for one object token.
+' * @param ParentId Object token id.
+' */
+Private Sub BuildObjectKeyIndex(ByVal ParentId As Long)
+    Dim child As Long
+    Dim indexKey As String
+    
+    If m_Tokens(ParentId).KeyIndexBuilt Then Exit Sub
+    
+    If m_KeyIndex Is Nothing Then
+        Set m_KeyIndex = CreateObject("Scripting.Dictionary")
+        m_KeyIndex.CompareMode = vbBinaryCompare
+    End If
+    
+    child = m_Tokens(ParentId).FirstChild
+    
+    Do While child > 0
+        indexKey = ObjectKeyIndexKey(ParentId, GetRawKey(child))
+        
+        If Not m_KeyIndex.Exists(indexKey) Then
+            m_KeyIndex.Add indexKey, child
+        End If
+        
+        child = m_Tokens(child).NextSibling
+    Loop
+    
+    m_Tokens(ParentId).KeyIndexBuilt = True
+End Sub
+
+'/**
+' * @method ObjectKeyIndexKey
+' * @brief Creates a collision-free dictionary key scoped to an object token.
+' * @param ParentId Object token id.
+' * @param KeyName Decoded member name.
+' * @return Dictionary key for the member name in its parent object.
+' */
+Private Function ObjectKeyIndexKey(ByVal ParentId As Long, ByVal KeyName As String) As String
+    ObjectKeyIndexKey = CStr(ParentId) & ChrW$(0) & KeyName
 End Function
 
 '/**
