@@ -64,6 +64,9 @@ Private Const JSON_WRITER_MIN_CAPACITY As Long = 4096
 '/** @description Initial writer capacity used when serializing external VBA values. */
 Private Const JSON_VALUE_WRITER_CAPACITY As Long = 65536
 
+'/** @description Minimum child count that justifies a lazy direct-child index. */
+Private Const JSON_CHILD_INDEX_MIN_CHILDREN As Long = 32
+
 '/**
 ' * @struct SAFEARRAY1D
 ' * @brief Minimal one-dimensional SAFEARRAY descriptor used to alias a VBA String as Integer().
@@ -111,6 +114,8 @@ Private Type JSToken
     KeyLen As Long
     ValStart As Long
     ValLen As Long
+    ChildIndexStart As Long
+    IndexLookupCount As Integer
 End Type
 
 Private m_Chars() As Integer
@@ -120,6 +125,9 @@ Private m_Index As Long
 Private m_Tokens() As JSToken
 Private m_TokenCount As Long
 Private m_TokenCap As Long
+Private m_ChildIndexTokens() As Long
+Private m_ChildIndexCount As Long
+Private m_ChildIndexCap As Long
 Private m_RootId As Long
 Private m_NodeId As Long
 Private m_Document As JSON
@@ -209,6 +217,9 @@ Friend Sub LoadText(ByRef Text As String)
     
     Erase m_Chars
     Erase m_Tokens
+    Erase m_ChildIndexTokens
+    m_ChildIndexCount = 0
+    m_ChildIndexCap = 0
     
     If m_Length = 0 Then Exit Sub
     
@@ -1720,7 +1731,25 @@ End Function
 ' * @return Child token id.
 ' */
 Friend Function FindIndexChild(ByVal ParentId As Long, ByVal Index As Long) As Long
-    If Index < 0 Then Exit Function
+    If ParentId < 1 Or ParentId > m_TokenCount Then Exit Function
+    If Index < 0 Or Index >= m_Tokens(ParentId).ChildCount Then Exit Function
+    
+    If m_Tokens(ParentId).ChildIndexStart > 0 Then
+        FindIndexChild = m_ChildIndexTokens(m_Tokens(ParentId).ChildIndexStart + Index)
+        Exit Function
+    End If
+    
+    If m_Tokens(ParentId).ChildCount >= JSON_CHILD_INDEX_MIN_CHILDREN Then
+        If m_Tokens(ParentId).IndexLookupCount < 2 Then
+            m_Tokens(ParentId).IndexLookupCount = m_Tokens(ParentId).IndexLookupCount + 1
+        End If
+        
+        If m_Tokens(ParentId).IndexLookupCount >= 2 Then
+            BuildChildIndex ParentId
+            FindIndexChild = m_ChildIndexTokens(m_Tokens(ParentId).ChildIndexStart + Index)
+            Exit Function
+        End If
+    End If
     
     Dim child As Long
     Dim i As Long
@@ -1737,6 +1766,67 @@ Friend Function FindIndexChild(ByVal ParentId As Long, ByVal Index As Long) As L
         child = m_Tokens(child).NextSibling
     Loop
 End Function
+
+'/**
+' * @method BuildChildIndex
+' * @brief Stores direct child token ids in a shared lookup buffer for one container.
+' * @param ParentId Container token id.
+' */
+Private Sub BuildChildIndex(ByVal ParentId As Long)
+    Dim child As Long
+    Dim i As Long
+    Dim startAt As Long
+    Dim total As Long
+    
+    If m_Tokens(ParentId).ChildIndexStart > 0 Then Exit Sub
+    
+    total = m_Tokens(ParentId).ChildCount
+    If total <= 0 Then Exit Sub
+    
+    EnsureChildIndexCapacity total
+    startAt = m_ChildIndexCount + 1
+    child = m_Tokens(ParentId).FirstChild
+    
+    For i = 0 To total - 1
+        m_ChildIndexTokens(startAt + i) = child
+        child = m_Tokens(child).NextSibling
+    Next i
+    
+    m_ChildIndexCount = m_ChildIndexCount + total
+    m_Tokens(ParentId).ChildIndexStart = startAt
+End Sub
+
+'/**
+' * @method EnsureChildIndexCapacity
+' * @brief Grows the shared lazy child-index buffer as required.
+' * @param Additional Number of child ids about to be appended.
+' */
+Private Sub EnsureChildIndexCapacity(ByVal Additional As Long)
+    Dim required As Long
+    Dim newCapacity As Long
+    
+    required = m_ChildIndexCount + Additional
+    If required <= m_ChildIndexCap Then Exit Sub
+    
+    newCapacity = m_ChildIndexCap
+    If newCapacity = 0 Then
+        newCapacity = JSON_CHILD_INDEX_MIN_CHILDREN
+        Do While newCapacity < required
+            newCapacity = newCapacity * 2
+        Loop
+        
+        ReDim m_ChildIndexTokens(1 To newCapacity)
+        m_ChildIndexCap = newCapacity
+        Exit Sub
+    End If
+    
+    Do While newCapacity < required
+        newCapacity = newCapacity * 2
+    Loop
+    
+    ReDim Preserve m_ChildIndexTokens(1 To newCapacity)
+    m_ChildIndexCap = newCapacity
+End Sub
 
 '/**
 ' * @method GetRawKey
