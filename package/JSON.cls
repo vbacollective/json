@@ -116,6 +116,8 @@ Private Type JSToken
     ValLen As Long
     KeyIndexBuilt As Boolean
     KeyLookupCount As Integer
+    ChildIndexStart As Long
+    IndexLookupCount As Integer
 End Type
 
 Private m_Chars() As Integer
@@ -126,10 +128,14 @@ Private m_Tokens() As JSToken
 Private m_TokenCount As Long
 Private m_TokenCap As Long
 Private m_KeyIndex As Object
+Private m_ChildIndexTokens() As Long
+Private m_ChildIndexCount As Long
+Private m_ChildIndexCap As Long
 Private m_RootId As Long
 Private m_NodeId As Long
 Private m_Document As JSON
 Private m_CharAliasActive As Boolean
+Private m_DecodedValueCache As Object
 
 '/**
 ' * @method Class_Terminate
@@ -138,6 +144,7 @@ Private m_CharAliasActive As Boolean
 Private Sub Class_Terminate()
     ClearCharAlias
     Set m_KeyIndex = Nothing
+    Set m_DecodedValueCache = Nothing
 End Sub
 
 '/**
@@ -214,9 +221,13 @@ Friend Sub LoadText(ByRef Text As String)
     m_NodeId = 0
     Set m_Document = Nothing
     Set m_KeyIndex = Nothing
+    Set m_DecodedValueCache = Nothing
     
     Erase m_Chars
     Erase m_Tokens
+    Erase m_ChildIndexTokens
+    m_ChildIndexCount = 0
+    m_ChildIndexCap = 0
     
     If m_Length = 0 Then Exit Sub
     
@@ -1505,6 +1516,9 @@ Private Function ParseValue(ByVal ParentId As Long, ByVal KeyStart As Long, ByVa
         Case 45, 48 To 57
             m_Tokens(id).Type = jsNumber
             ParseNumber id
+        
+        Case Else
+            m_Index = m_Length
     End Select
 End Function
 
@@ -1733,14 +1747,14 @@ End Function
 ' */
 Private Function KeyEquals(ByVal TokenId As Long, ByRef KeyName As String) As Boolean
     If m_Tokens(TokenId).KeyLen = 0 Then Exit Function
-    
+
     If m_Tokens(TokenId).KeyLen <> Len(KeyName) Then
         If KeyContainsEscape(TokenId) Then
             KeyEquals = (StrComp(GetRawKey(TokenId), KeyName, vbBinaryCompare) = 0)
         End If
         Exit Function
     End If
-    
+
     #If VBA7 Then
         Dim pJson As LongPtr
         Dim pKey As LongPtr
@@ -1748,10 +1762,10 @@ Private Function KeyEquals(ByVal TokenId As Long, ByRef KeyName As String) As Bo
         Dim pJson As Long
         Dim pKey As Long
     #End If
-    
+
     pJson = StrPtr(m_Text) + ((m_Tokens(TokenId).KeyStart - 1) * 2)
     pKey = StrPtr(KeyName)
-    
+
     KeyEquals = (CompareStringOrdinal(pJson, m_Tokens(TokenId).KeyLen, pKey, Len(KeyName), 0) = 2)
 End Function
 
@@ -1764,7 +1778,7 @@ End Function
 Private Function KeyContainsEscape(ByVal TokenId As Long) As Boolean
     Dim i As Long
     Dim lastChar As Long
-    
+
     lastChar = m_Tokens(TokenId).KeyStart + m_Tokens(TokenId).KeyLen - 2
     
     For i = m_Tokens(TokenId).KeyStart - 1 To lastChar
@@ -1825,7 +1839,25 @@ End Function
 ' * @return Child token id.
 ' */
 Friend Function FindIndexChild(ByVal ParentId As Long, ByVal Index As Long) As Long
-    If Index < 0 Then Exit Function
+    If ParentId < 1 Or ParentId > m_TokenCount Then Exit Function
+    If Index < 0 Or Index >= m_Tokens(ParentId).ChildCount Then Exit Function
+    
+    If m_Tokens(ParentId).ChildIndexStart > 0 Then
+        FindIndexChild = m_ChildIndexTokens(m_Tokens(ParentId).ChildIndexStart + Index)
+        Exit Function
+    End If
+    
+    If m_Tokens(ParentId).ChildCount >= JSON_CHILD_INDEX_MIN_CHILDREN Then
+        If m_Tokens(ParentId).IndexLookupCount < 2 Then
+            m_Tokens(ParentId).IndexLookupCount = m_Tokens(ParentId).IndexLookupCount + 1
+        End If
+        
+        If m_Tokens(ParentId).IndexLookupCount >= 2 Then
+            BuildChildIndex ParentId
+            FindIndexChild = m_ChildIndexTokens(m_Tokens(ParentId).ChildIndexStart + Index)
+            Exit Function
+        End If
+    End If
     
     Dim child As Long
     Dim i As Long
@@ -1842,6 +1874,67 @@ Friend Function FindIndexChild(ByVal ParentId As Long, ByVal Index As Long) As L
         child = m_Tokens(child).NextSibling
     Loop
 End Function
+
+'/**
+' * @method BuildChildIndex
+' * @brief Stores direct child token ids in a shared lookup buffer for one container.
+' * @param ParentId Container token id.
+' */
+Private Sub BuildChildIndex(ByVal ParentId As Long)
+    Dim child As Long
+    Dim i As Long
+    Dim startAt As Long
+    Dim total As Long
+    
+    If m_Tokens(ParentId).ChildIndexStart > 0 Then Exit Sub
+    
+    total = m_Tokens(ParentId).ChildCount
+    If total <= 0 Then Exit Sub
+    
+    EnsureChildIndexCapacity total
+    startAt = m_ChildIndexCount + 1
+    child = m_Tokens(ParentId).FirstChild
+    
+    For i = 0 To total - 1
+        m_ChildIndexTokens(startAt + i) = child
+        child = m_Tokens(child).NextSibling
+    Next i
+    
+    m_ChildIndexCount = m_ChildIndexCount + total
+    m_Tokens(ParentId).ChildIndexStart = startAt
+End Sub
+
+'/**
+' * @method EnsureChildIndexCapacity
+' * @brief Grows the shared lazy child-index buffer as required.
+' * @param Additional Number of child ids about to be appended.
+' */
+Private Sub EnsureChildIndexCapacity(ByVal Additional As Long)
+    Dim required As Long
+    Dim newCapacity As Long
+    
+    required = m_ChildIndexCount + Additional
+    If required <= m_ChildIndexCap Then Exit Sub
+    
+    newCapacity = m_ChildIndexCap
+    If newCapacity = 0 Then
+        newCapacity = JSON_CHILD_INDEX_MIN_CHILDREN
+        Do While newCapacity < required
+            newCapacity = newCapacity * 2
+        Loop
+        
+        ReDim m_ChildIndexTokens(1 To newCapacity)
+        m_ChildIndexCap = newCapacity
+        Exit Sub
+    End If
+    
+    Do While newCapacity < required
+        newCapacity = newCapacity * 2
+    Loop
+    
+    ReDim Preserve m_ChildIndexTokens(1 To newCapacity)
+    m_ChildIndexCap = newCapacity
+End Sub
 
 '/**
 ' * @method GetRawKey
@@ -1873,7 +1966,20 @@ Friend Function GetRawValue(ByVal TokenId As Long) As String
     GetRawValue = Mid$(m_Text, m_Tokens(TokenId).ValStart, m_Tokens(TokenId).ValLen)
     
     If InStr(1, GetRawValue, "\") > 0 Then
+        If Not m_DecodedValueCache Is Nothing Then
+            If m_DecodedValueCache.Exists(CStr(TokenId)) Then
+                GetRawValue = m_DecodedValueCache.Item(CStr(TokenId))
+                Exit Function
+            End If
+        End If
+        
         GetRawValue = UnescapeJSONString(GetRawValue)
+        
+        If m_DecodedValueCache Is Nothing Then
+            Set m_DecodedValueCache = CreateObject("Scripting.Dictionary")
+        End If
+        
+        m_DecodedValueCache.Add CStr(TokenId), GetRawValue
     End If
 End Function
 

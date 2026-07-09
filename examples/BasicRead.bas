@@ -33,10 +33,13 @@ Public Sub Example_ReadArray()
     Dim items As JSON
     Set items = JSON.Parse("[""Excel"",""Access"",""Word""]")
 
-    Dim i As Long
-    For i = 0 To items.Count - 1
-        Debug.Print items.StringAt(i)
-    Next i
+    Dim token As Long
+    token = items.FirstChildToken()
+    
+    Do While token <> 0
+        Debug.Print items.TokenStringValue(token)
+        token = items.NextToken(token)
+    Loop
 End Sub
 
 Public Sub Example_DefaultMemberChaining()
