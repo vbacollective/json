@@ -1497,6 +1497,9 @@ Private Function ParseValue(ByVal ParentId As Long, ByVal KeyStart As Long, ByVa
         Case 45, 48 To 57
             m_Tokens(id).Type = jsNumber
             ParseNumber id
+        
+        Case Else
+            m_Index = m_Length
     End Select
 End Function
 
