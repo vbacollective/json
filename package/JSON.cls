@@ -124,6 +124,7 @@ Private m_RootId As Long
 Private m_NodeId As Long
 Private m_Document As JSON
 Private m_CharAliasActive As Boolean
+Private m_DecodedValueCache As Object
 
 '/**
 ' * @method Class_Terminate
@@ -131,6 +132,7 @@ Private m_CharAliasActive As Boolean
 ' */
 Private Sub Class_Terminate()
     ClearCharAlias
+    Set m_DecodedValueCache = Nothing
 End Sub
 
 '/**
@@ -206,6 +208,7 @@ Friend Sub LoadText(ByRef Text As String)
     m_RootId = 0
     m_NodeId = 0
     Set m_Document = Nothing
+    Set m_DecodedValueCache = Nothing
     
     Erase m_Chars
     Erase m_Tokens
@@ -1797,7 +1800,20 @@ Friend Function GetRawValue(ByVal TokenId As Long) As String
     GetRawValue = Mid$(m_Text, m_Tokens(TokenId).ValStart, m_Tokens(TokenId).ValLen)
     
     If InStr(1, GetRawValue, "\") > 0 Then
+        If Not m_DecodedValueCache Is Nothing Then
+            If m_DecodedValueCache.Exists(CStr(TokenId)) Then
+                GetRawValue = m_DecodedValueCache.Item(CStr(TokenId))
+                Exit Function
+            End If
+        End If
+        
         GetRawValue = UnescapeJSONString(GetRawValue)
+        
+        If m_DecodedValueCache Is Nothing Then
+            Set m_DecodedValueCache = CreateObject("Scripting.Dictionary")
+        End If
+        
+        m_DecodedValueCache.Add CStr(TokenId), GetRawValue
     End If
 End Function
 
