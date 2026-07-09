@@ -64,6 +64,9 @@ Private Const JSON_WRITER_MIN_CAPACITY As Long = 4096
 '/** @description Initial writer capacity used when serializing external VBA values. */
 Private Const JSON_VALUE_WRITER_CAPACITY As Long = 65536
 
+'/** @description Minimum object width that justifies a lazy key index. */
+Private Const JSON_KEY_INDEX_MIN_CHILDREN As Long = 32
+
 '/**
 ' * @struct SAFEARRAY1D
 ' * @brief Minimal one-dimensional SAFEARRAY descriptor used to alias a VBA String as Integer().
@@ -111,6 +114,8 @@ Private Type JSToken
     KeyLen As Long
     ValStart As Long
     ValLen As Long
+    KeyIndexBuilt As Boolean
+    KeyLookupCount As Integer
 End Type
 
 Private m_Chars() As Integer
@@ -120,6 +125,7 @@ Private m_Index As Long
 Private m_Tokens() As JSToken
 Private m_TokenCount As Long
 Private m_TokenCap As Long
+Private m_KeyIndex As Object
 Private m_RootId As Long
 Private m_NodeId As Long
 Private m_Document As JSON
@@ -131,6 +137,7 @@ Private m_CharAliasActive As Boolean
 ' */
 Private Sub Class_Terminate()
     ClearCharAlias
+    Set m_KeyIndex = Nothing
 End Sub
 
 '/**
@@ -206,6 +213,7 @@ Friend Sub LoadText(ByRef Text As String)
     m_RootId = 0
     m_NodeId = 0
     Set m_Document = Nothing
+    Set m_KeyIndex = Nothing
     
     Erase m_Chars
     Erase m_Tokens
@@ -1674,6 +1682,35 @@ End Sub
 ' */
 Friend Function FindChildFast(ByVal ParentId As Long, ByRef KeyName As String) As Long
     Dim child As Long
+    Dim indexKey As String
+    
+    If ParentId < 1 Or ParentId > m_TokenCount Then Exit Function
+    If m_Tokens(ParentId).Type <> jsObject Then Exit Function
+    
+    If m_Tokens(ParentId).KeyIndexBuilt Then
+        indexKey = ObjectKeyIndexKey(ParentId, KeyName)
+        
+        If m_KeyIndex.Exists(indexKey) Then
+            FindChildFast = m_KeyIndex.Item(indexKey)
+        End If
+        Exit Function
+    End If
+    
+    If m_Tokens(ParentId).ChildCount >= JSON_KEY_INDEX_MIN_CHILDREN Then
+        If m_Tokens(ParentId).KeyLookupCount < 2 Then
+            m_Tokens(ParentId).KeyLookupCount = m_Tokens(ParentId).KeyLookupCount + 1
+        End If
+        
+        If m_Tokens(ParentId).KeyLookupCount >= 2 Then
+            BuildObjectKeyIndex ParentId
+            indexKey = ObjectKeyIndexKey(ParentId, KeyName)
+            
+            If m_KeyIndex.Exists(indexKey) Then
+                FindChildFast = m_KeyIndex.Item(indexKey)
+            End If
+            Exit Function
+        End If
+    End If
     
     child = m_Tokens(ParentId).FirstChild
     
@@ -1695,8 +1732,14 @@ End Function
 ' * @return Boolean comparison result.
 ' */
 Private Function KeyEquals(ByVal TokenId As Long, ByRef KeyName As String) As Boolean
-    If m_Tokens(TokenId).KeyLen <> Len(KeyName) Then Exit Function
     If m_Tokens(TokenId).KeyLen = 0 Then Exit Function
+    
+    If m_Tokens(TokenId).KeyLen <> Len(KeyName) Then
+        If KeyContainsEscape(TokenId) Then
+            KeyEquals = (StrComp(GetRawKey(TokenId), KeyName, vbBinaryCompare) = 0)
+        End If
+        Exit Function
+    End If
     
     #If VBA7 Then
         Dim pJson As LongPtr
@@ -1710,6 +1753,68 @@ Private Function KeyEquals(ByVal TokenId As Long, ByRef KeyName As String) As Bo
     pKey = StrPtr(KeyName)
     
     KeyEquals = (CompareStringOrdinal(pJson, m_Tokens(TokenId).KeyLen, pKey, Len(KeyName), 0) = 2)
+End Function
+
+'/**
+' * @method KeyContainsEscape
+' * @brief Reports whether an object key source slice contains a JSON escape marker.
+' * @param TokenId Token id containing the object key.
+' * @return True when the raw key needs JSON decoding before comparison.
+' */
+Private Function KeyContainsEscape(ByVal TokenId As Long) As Boolean
+    Dim i As Long
+    Dim lastChar As Long
+    
+    lastChar = m_Tokens(TokenId).KeyStart + m_Tokens(TokenId).KeyLen - 2
+    
+    For i = m_Tokens(TokenId).KeyStart - 1 To lastChar
+        If m_Chars(i) = 92 Then
+            KeyContainsEscape = True
+            Exit Function
+        End If
+    Next i
+End Function
+
+'/**
+' * @method BuildObjectKeyIndex
+' * @brief Builds normalized key lookup entries for one object token.
+' * @param ParentId Object token id.
+' */
+Private Sub BuildObjectKeyIndex(ByVal ParentId As Long)
+    Dim child As Long
+    Dim indexKey As String
+    
+    If m_Tokens(ParentId).KeyIndexBuilt Then Exit Sub
+    
+    If m_KeyIndex Is Nothing Then
+        Set m_KeyIndex = CreateObject("Scripting.Dictionary")
+        m_KeyIndex.CompareMode = vbBinaryCompare
+    End If
+    
+    child = m_Tokens(ParentId).FirstChild
+    
+    Do While child > 0
+        indexKey = ObjectKeyIndexKey(ParentId, GetRawKey(child))
+        
+        If Not m_KeyIndex.Exists(indexKey) Then
+            m_KeyIndex.Add indexKey, child
+        End If
+        
+        child = m_Tokens(child).NextSibling
+    Loop
+    
+    m_Tokens(ParentId).KeyIndexBuilt = True
+End Sub
+
+'/**
+' * @method ObjectKeyIndexKey
+' * @brief Creates a collision-free dictionary key scoped to an object token.
+' * @param ParentId Object token id.
+' * @param KeyName Decoded member name.
+' * @return Dictionary key for the member name in its parent object.
+' */
+Private Function ObjectKeyIndexKey(ByVal ParentId As Long, ByVal KeyName As String) As String
+    ObjectKeyIndexKey = CStr(ParentId) & ChrW$(0) & KeyName
 End Function
 
 '/**
