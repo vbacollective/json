@@ -31,7 +31,7 @@ This keeps the API simple while still allowing fast reads, typed access, token i
 * **Single class:** Import only `JSON.cls`.
 * **No references:** No required entries in **Tools > References**.
 * **No Dictionary dependency:** Objects are stored internally and can be read with `Keys`, `Exists`, and typed key accessors.
-* **Typed reads:** Use `StringKey`, `NumberKey`, `BoolKey`, `StringIndex`, `NumberIndex`, and `BoolIndex` when the schema is known.
+* **Typed reads:** Use `StringKey`, `NumberKey`, `BoolKey`, `StringAt`, `NumberAt`, and `BoolAt` when the schema is known.
 * **Node traversal:** Use `NodeKey`, `NodeIndex`, `Count`, `ExistsKey`, `ExistsIndex`, and `JsonType`.
 * **Compatibility access:** The generic `Item`, `Value`, `ValueAt`, `StringValue`, `NumberValue`, `BoolValue`, `StringAt`, `NumberAt`, and `BoolAt` style remains available for existing code.
 * **Keys support:** Use `Keys()` to list object keys or array indexes.
@@ -103,10 +103,13 @@ Array access is zero-based.
 Dim items As JSON
 Set items = JSON.Parse("[""Excel"",""Access"",""Word""]")
 
-Dim i As Long
-For i = 0 To items.Count - 1
-    Debug.Print items.StringIndex(i)
-Next i
+Dim token As Long
+token = items.FirstChildToken()
+
+Do While token <> 0
+    Debug.Print items.TokenStringValue(token)
+    token = items.NextToken(token)
+Loop
 ```
 
 Nested arrays and objects can be accessed with `NodeIndex`.
@@ -262,10 +265,10 @@ Typed key accessors:
 
 Typed index accessors:
 
-* `StringIndex(index)`
-* `NumberIndex(index)`
-* `BoolIndex(index)`
-* `RawStringIndex(index)`
+* `StringAt(index)`
+* `NumberAt(index)`
+* `BoolAt(index)`
+* `RawStringAt(index)`
 
 Compatibility typed accessors:
 

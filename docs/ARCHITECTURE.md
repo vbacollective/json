@@ -306,7 +306,7 @@ That lets the same API work on both root documents and nested nodes:
 ```vb
 Debug.Print doc.StringKey("name")
 Debug.Print user.StringKey("name")
-Debug.Print items.StringIndex(0)
+Debug.Print items.StringAt(0)
 ```
 
 ## Parsing Pipeline
@@ -436,7 +436,7 @@ ValStart = first character after opening quote
 ValLen   = number of characters before closing quote
 ```
 
-When the string is read through `StringKey`, `StringIndex`, `StringValue`, or `TokenStringValue`, the raw slice is copied and then unescaped if needed.
+When the string is read through `StringKey`, `StringAt`, `StringValue`, or `TokenStringValue`, the raw slice is copied and then unescaped if needed.
 
 This keeps parse time cheaper because strings are not fully processed unless user code reads them.
 
@@ -509,7 +509,7 @@ Modern methods avoid ambiguity by splitting object-key access from array-index a
 
 ```vb
 Debug.Print doc.StringKey("name")
-Debug.Print arr.StringIndex(0)
+Debug.Print arr.StringAt(0)
 Debug.Print doc.ExistsKey("name")
 Debug.Print arr.ExistsIndex(0)
 ```
@@ -549,10 +549,10 @@ Debug.Print doc.BoolKey("active")
 
 ```vb
 ExistsIndex(ByVal Index As Long) As Boolean
-StringIndex(ByVal Index As Long) As String
-NumberIndex(ByVal Index As Long) As Double
-BoolIndex(ByVal Index As Long) As Boolean
-RawStringIndex(ByVal Index As Long) As String
+StringAt(ByVal Index As Long) As String
+NumberAt(ByVal Index As Long) As Double
+BoolAt(ByVal Index As Long) As Boolean
+RawStringAt(ByVal Index As Long) As String
 NodeIndex(ByVal Index As Long) As JSON
 ```
 
@@ -562,9 +562,9 @@ Example:
 Dim arr As JSON
 Set arr = JSON.Parse("[""VBA"",""JSON"",true]")
 
-Debug.Print arr.StringIndex(0)
-Debug.Print arr.StringIndex(1)
-Debug.Print arr.BoolIndex(2)
+Debug.Print arr.StringAt(0)
+Debug.Print arr.StringAt(1)
+Debug.Print arr.BoolAt(2)
 ```
 
 ### Why these methods exist
@@ -602,7 +602,7 @@ The recommended style for new code is:
 ```vb
 Debug.Print doc.StringKey("name")
 Set user = doc.NodeKey("user")
-Debug.Print arr.StringIndex(0)
+Debug.Print arr.StringAt(0)
 ```
 
 ## Keys and Exists
@@ -666,7 +666,7 @@ Use `ExistsIndex` for arrays:
 
 ```vb
 If arr.ExistsIndex(0) Then
-    Debug.Print arr.StringIndex(0)
+    Debug.Print arr.StringAt(0)
 End If
 ```
 
@@ -730,7 +730,7 @@ Raw access returns text based on the original stored value slice.
 Used by:
 
 - `RawStringKey`
-- `RawStringIndex`
+- `RawStringAt`
 - `RawStringValue`
 - `RawStringAt`
 - `TokenRawStringValue`
@@ -953,9 +953,9 @@ This avoids the generic `Variant` route where possible.
 ### Fast path: known array indexes
 
 ```vb
-Debug.Print arr.StringIndex(0)
-Debug.Print arr.NumberIndex(1)
-Debug.Print arr.BoolIndex(2)
+Debug.Print arr.StringAt(0)
+Debug.Print arr.NumberAt(1)
+Debug.Print arr.BoolAt(2)
 ```
 
 ### Fast path: large array scan
@@ -1101,13 +1101,7 @@ Do While t <> 0
 Loop
 ```
 
-Avoid for huge arrays:
-
-```vb
-For i = 0 To rows.Count - 1
-    Set row = rows.NodeIndex(i)
-Next i
-```
+Use indexed access only when selecting individual items by position.
 
 ### Variant cannot disappear completely
 

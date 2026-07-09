@@ -2,7 +2,7 @@
 
 **JSON** is a single-file JSON parser and writer for VBA. It is designed for Office projects that need fast parsing, low allocation, typed access, lightweight traversal, token iteration, and practical JSON serialization without requiring external references.
 
-This reference documents the current public API exposed by **JSON.cls**, including the newer typed helpers such as `StringKey`, `NumberKey`, `BoolKey`, `NodeKey`, `StringIndex`, `NodeIndex`, `ExistsKey`, `ExistsIndex`, and `Keys`.
+This reference documents the current public API exposed by **JSON.cls**, including the newer typed helpers such as `StringKey`, `NumberKey`, `BoolKey`, `NodeKey`, `StringAt`, `NodeIndex`, `ExistsKey`, `ExistsIndex`, and `Keys`.
 
 ## Table of Contents
 
@@ -60,7 +60,7 @@ Dim arr As JSON
 Set arr = JSON.Parse("[10,20,30]")
 
 If arr.ExistsIndex(0) Then
-    Debug.Print arr.NumberIndex(0)
+    Debug.Print arr.NumberAt(0)
 End If
 ```
 
@@ -161,9 +161,9 @@ Debug.Print doc.BoolKey("active")
 Array access:
 
 ```vb
-Debug.Print arr.StringIndex(0)
-Debug.Print arr.NumberIndex(1)
-Debug.Print arr.BoolIndex(2)
+Debug.Print arr.StringAt(0)
+Debug.Print arr.NumberAt(1)
+Debug.Print arr.BoolAt(2)
 ```
 
 These helpers are cleaner and avoid relying on `Variant` for the common read path.
@@ -205,10 +205,13 @@ Public Sub ReadArray()
     Dim arr As JSON
     Set arr = JSON.Parse("[""Excel"",""PowerPoint"",""Access""]")
 
-    Dim i As Long
-    For i = 0 To arr.Count - 1
-        Debug.Print arr.StringIndex(i)
-    Next i
+    Dim token As Long
+    token = arr.FirstChildToken()
+
+    Do While token <> 0
+        Debug.Print arr.TokenStringValue(token)
+        token = arr.NextToken(token)
+    Loop
 End Sub
 ```
 
@@ -426,7 +429,7 @@ Set user = doc("user")
 Debug.Print user("name")
 ```
 
-Use `Item` when convenience matters. Prefer `StringKey`, `NumberKey`, `BoolKey`, `NodeKey`, `StringIndex`, `NumberIndex`, `BoolIndex`, and `NodeIndex` when you know the expected schema.
+Use `Item` when convenience matters. Prefer `StringKey`, `NumberKey`, `BoolKey`, `NodeKey`, `StringAt`, `NumberAt`, `BoolAt`, and `NodeIndex` when you know the expected schema.
 
 ### Value
 
@@ -615,11 +618,13 @@ Public Function KeyAt(ByVal Index As Long) As String
 Gets the key of an object child by zero-based child position.
 
 ```vb
-Dim i As Long
+Dim token As Long
+token = doc.FirstChildToken()
 
-For i = 0 To doc.Count - 1
-    Debug.Print doc.KeyAt(i), doc.ValueAt(i)
-Next i
+Do While token <> 0
+    Debug.Print doc.TokenKey(token), doc.TokenValue(token)
+    token = doc.NextToken(token)
+Loop
 ```
 
 For arrays, `KeyAt` returns an empty string because array values do not have object keys.
@@ -714,7 +719,7 @@ Checks whether an array index exists.
 
 ```vb
 If arr.ExistsIndex(2) Then
-    Debug.Print arr.StringIndex(2)
+    Debug.Print arr.StringAt(2)
 End If
 ```
 
@@ -811,52 +816,52 @@ Use `NodeKey` for nested objects and arrays.
 
 Typed array accessors are the recommended API for known array schemas.
 
-### StringIndex
+### StringAt
 
 ```vb
-Public Function StringIndex(ByVal Index As Long) As String
+Public Function StringAt(ByVal Index As Long) As String
 ```
 
 Gets an array item as `String`.
 
 ```vb
-Debug.Print arr.StringIndex(0)
+Debug.Print arr.StringAt(0)
 ```
 
-### NumberIndex
+### NumberAt
 
 ```vb
-Public Function NumberIndex(ByVal Index As Long) As Double
+Public Function NumberAt(ByVal Index As Long) As Double
 ```
 
 Gets an array item as `Double`.
 
 ```vb
-Debug.Print arr.NumberIndex(0)
+Debug.Print arr.NumberAt(0)
 ```
 
-### BoolIndex
+### BoolAt
 
 ```vb
-Public Function BoolIndex(ByVal Index As Long) As Boolean
+Public Function BoolAt(ByVal Index As Long) As Boolean
 ```
 
 Gets an array item as `Boolean`.
 
 ```vb
-Debug.Print arr.BoolIndex(0)
+Debug.Print arr.BoolAt(0)
 ```
 
-### RawStringIndex
+### RawStringAt
 
 ```vb
-Public Function RawStringIndex(ByVal Index As Long) As String
+Public Function RawStringAt(ByVal Index As Long) As String
 ```
 
 Gets an array string item without unescaping.
 
 ```vb
-Debug.Print arr.RawStringIndex(0)
+Debug.Print arr.RawStringAt(0)
 ```
 
 ### NodeIndex
@@ -904,7 +909,7 @@ Debug.Print doc.StringKey("name")
 Modern array equivalent:
 
 ```vb
-Debug.Print arr.StringIndex(0)
+Debug.Print arr.StringAt(0)
 ```
 
 ### NumberValue
@@ -924,7 +929,7 @@ Modern equivalents:
 
 ```vb
 Debug.Print doc.NumberKey("score")
-Debug.Print arr.NumberIndex(0)
+Debug.Print arr.NumberAt(0)
 ```
 
 ### BoolValue
@@ -944,7 +949,7 @@ Modern equivalents:
 
 ```vb
 Debug.Print doc.BoolKey("active")
-Debug.Print arr.BoolIndex(0)
+Debug.Print arr.BoolAt(0)
 ```
 
 ### RawStringValue
@@ -964,7 +969,7 @@ Modern equivalents:
 
 ```vb
 Debug.Print doc.RawStringKey("message")
-Debug.Print arr.RawStringIndex(0)
+Debug.Print arr.RawStringAt(0)
 ```
 
 ### StringAt
@@ -982,7 +987,7 @@ Debug.Print arr.StringAt(0)
 Modern equivalent:
 
 ```vb
-Debug.Print arr.StringIndex(0)
+Debug.Print arr.StringAt(0)
 ```
 
 ### NumberAt
@@ -1000,7 +1005,7 @@ Debug.Print arr.NumberAt(0)
 Modern equivalent:
 
 ```vb
-Debug.Print arr.NumberIndex(0)
+Debug.Print arr.NumberAt(0)
 ```
 
 ### BoolAt
@@ -1018,7 +1023,7 @@ Debug.Print arr.BoolAt(0)
 Modern equivalent:
 
 ```vb
-Debug.Print arr.BoolIndex(0)
+Debug.Print arr.BoolAt(0)
 ```
 
 ### RawStringAt
@@ -1036,7 +1041,7 @@ Debug.Print arr.RawStringAt(0)
 Modern equivalent:
 
 ```vb
-Debug.Print arr.RawStringIndex(0)
+Debug.Print arr.RawStringAt(0)
 ```
 
 ## Token Traversal
@@ -1362,10 +1367,13 @@ Public Sub ReadSimpleArray()
     Dim arr As JSON
     Set arr = JSON.Parse("[""VBA"",""Rust"",""JavaScript""]")
 
-    Dim i As Long
-    For i = 0 To arr.Count - 1
-        Debug.Print arr.StringIndex(i)
-    Next i
+    Dim token As Long
+    token = arr.FirstChildToken()
+
+    Do While token <> 0
+        Debug.Print arr.TokenStringValue(token)
+        token = arr.NextToken(token)
+    Loop
 End Sub
 ```
 
@@ -1381,17 +1389,14 @@ Public Sub ReadArrayOfObjects(ByVal responseText As String)
 
     If users Is Nothing Then Exit Sub
 
-    Dim i As Long
-    Dim user As JSON
+    Dim token As Long
+    token = users.FirstChildToken()
 
-    For i = 0 To users.Count - 1
-        Set user = users.NodeIndex(i)
-
-        If Not user Is Nothing Then
-            Debug.Print user.StringKey("name")
-            Debug.Print user.NumberKey("score")
-        End If
-    Next i
+    Do While token <> 0
+        Debug.Print users.TokenString(token, "name")
+        Debug.Print users.TokenNumber(token, "score")
+        token = users.NextToken(token)
+    Loop
 End Sub
 ```
 
@@ -1605,9 +1610,9 @@ Debug.Print doc.BoolKey("active")
 And for arrays:
 
 ```vb
-Debug.Print arr.StringIndex(0)
-Debug.Print arr.NumberIndex(1)
-Debug.Print arr.BoolIndex(2)
+Debug.Print arr.StringAt(0)
+Debug.Print arr.NumberAt(1)
+Debug.Print arr.BoolAt(2)
 ```
 
 This is clearer than using the generic `Item` or `ValueAt` path everywhere.
@@ -1628,7 +1633,7 @@ For arrays:
 
 ```vb
 If arr.ExistsIndex(3) Then
-    Debug.Print arr.StringIndex(3)
+    Debug.Print arr.StringAt(3)
 End If
 ```
 
@@ -1748,9 +1753,9 @@ Most typed accessors return default VBA values when a field is missing or has an
 
 | Accessor | Missing Result |
 |:--|:--|
-| `StringKey`, `StringIndex` | `""` |
-| `NumberKey`, `NumberIndex` | `0` |
-| `BoolKey`, `BoolIndex` | `False` |
+| `StringKey`, `StringAt` | `""` |
+| `NumberKey`, `NumberAt` | `0` |
+| `BoolKey`, `BoolAt` | `False` |
 | `NodeKey`, `NodeIndex` | `Nothing` |
 | `ValueAt` | Empty `Variant` |
 | `Token...` helpers | Default VBA value |
@@ -1805,9 +1810,9 @@ Debug.Print doc.StringKey("name")
 If the array item is primitive, use a typed index helper:
 
 ```vb
-Debug.Print arr.StringIndex(0)
-Debug.Print arr.NumberIndex(0)
-Debug.Print arr.BoolIndex(0)
+Debug.Print arr.StringAt(0)
+Debug.Print arr.NumberAt(0)
+Debug.Print arr.BoolAt(0)
 ```
 
 ### `NumberKey` Returns 0
@@ -1858,16 +1863,7 @@ End If
 
 ### Large Arrays Feel Slow
 
-Avoid creating a node wrapper for every item in huge arrays:
-
-```vb
-For i = 0 To rows.Count - 1
-    Set row = rows.NodeIndex(i)
-    Debug.Print row.StringKey("name")
-Next i
-```
-
-Prefer token iteration:
+Use token iteration for complete array scans:
 
 ```vb
 Dim t As Long
@@ -1967,10 +1963,10 @@ Debug.Print doc.Stringify(True)
 
 | API | Signature | Description |
 |:--|:--|:--|
-| `StringIndex` | `StringIndex(Index As Long) As String` | Gets an array item as string. |
-| `NumberIndex` | `NumberIndex(Index As Long) As Double` | Gets an array item as double. |
-| `BoolIndex` | `BoolIndex(Index As Long) As Boolean` | Gets an array item as boolean. |
-| `RawStringIndex` | `RawStringIndex(Index As Long) As String` | Gets an array string item without unescaping. |
+| `StringAt` | `StringAt(Index As Long) As String` | Gets an array item as string. |
+| `NumberAt` | `NumberAt(Index As Long) As Double` | Gets an array item as double. |
+| `BoolAt` | `BoolAt(Index As Long) As Boolean` | Gets an array item as boolean. |
+| `RawStringAt` | `RawStringAt(Index As Long) As String` | Gets an array string item without unescaping. |
 | `NodeIndex` | `NodeIndex(Index As Long) As JSON` | Gets an array item as a JSON node. |
 
 ### Legacy Typed Accessors
