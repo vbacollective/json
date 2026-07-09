@@ -1695,9 +1695,15 @@ End Function
 ' * @return Boolean comparison result.
 ' */
 Private Function KeyEquals(ByVal TokenId As Long, ByRef KeyName As String) As Boolean
-    If m_Tokens(TokenId).KeyLen <> Len(KeyName) Then Exit Function
     If m_Tokens(TokenId).KeyLen = 0 Then Exit Function
-    
+
+    If m_Tokens(TokenId).KeyLen <> Len(KeyName) Then
+        If KeyContainsEscape(TokenId) Then
+            KeyEquals = (StrComp(GetRawKey(TokenId), KeyName, vbBinaryCompare) = 0)
+        End If
+        Exit Function
+    End If
+
     #If VBA7 Then
         Dim pJson As LongPtr
         Dim pKey As LongPtr
@@ -1705,11 +1711,31 @@ Private Function KeyEquals(ByVal TokenId As Long, ByRef KeyName As String) As Bo
         Dim pJson As Long
         Dim pKey As Long
     #End If
-    
+
     pJson = StrPtr(m_Text) + ((m_Tokens(TokenId).KeyStart - 1) * 2)
     pKey = StrPtr(KeyName)
-    
+
     KeyEquals = (CompareStringOrdinal(pJson, m_Tokens(TokenId).KeyLen, pKey, Len(KeyName), 0) = 2)
+End Function
+
+'/**
+' * @method KeyContainsEscape
+' * @brief Reports whether an object key source slice contains a JSON escape marker.
+' * @param TokenId Token id containing the object key.
+' * @return True when the raw key needs JSON decoding before comparison.
+' */
+Private Function KeyContainsEscape(ByVal TokenId As Long) As Boolean
+    Dim i As Long
+    Dim lastChar As Long
+
+    lastChar = m_Tokens(TokenId).KeyStart + m_Tokens(TokenId).KeyLen - 2
+
+    For i = m_Tokens(TokenId).KeyStart - 1 To lastChar
+        If m_Chars(i) = 92 Then
+            KeyContainsEscape = True
+            Exit Function
+        End If
+    Next i
 End Function
 
 '/**
